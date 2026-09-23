@@ -6,7 +6,6 @@ import { HostedZone } from 'aws-cdk-lib/aws-route53';
 import { aws_certificatemanager } from '../../src';
 
 const app = new App({ context: { '@aws-cdk/core:defaultCrossStackReferences': 'strong' } });
-const account = process.env.CDK_DEFAULT_ACCOUNT;
 const zoneId = process.env.OCF_CERTIFICATE_INTEG_ZONE_ID;
 const zoneName = process.env.OCF_CERTIFICATE_INTEG_ZONE_NAME;
 if (!zoneId || !zoneName) {
@@ -15,8 +14,8 @@ if (!zoneId || !zoneName) {
   );
 }
 const domainName = `ocf-certificate-integ.${zoneName.toLowerCase().replace(/\.$/, '')}`;
-const owner = new Stack(app, 'CertificateIntegOwner', { env: { account, region: 'us-east-1' } });
-const consumer = new Stack(app, 'CertificateIntegConsumer', { env: { account, region: 'eu-central-1' } });
+const owner = new Stack(app, 'CertificateIntegOwner', { env: { region: 'us-east-1' } });
+const consumer = new Stack(app, 'CertificateIntegConsumer', { env: { region: 'eu-central-1' } });
 const zone = HostedZone.fromHostedZoneAttributes(owner, 'Zone', { hostedZoneId: zoneId, zoneName });
 const certificate = new aws_certificatemanager.DnsValidatedCertificateV2(consumer, 'Certificate', {
   domainName,
@@ -34,7 +33,7 @@ const distribution = new Distribution(consumer, 'Distribution', {
 });
 new CfnOutput(consumer, 'CertificateArn', { value: certificate.certificateArn });
 new CfnOutput(consumer, 'DistributionId', { value: distribution.distributionId });
-const assertionStack = new Stack(app, 'CertificateIntegAssertions', { env: { account, region: 'us-east-1' } });
+const assertionStack = new Stack(app, 'CertificateIntegAssertions', { env: { region: 'us-east-1' } });
 const integ = new IntegTest(app, 'DnsValidatedCertificateV2Integ', { testCases: [owner, consumer], assertionStack });
 integ.assertions
   .awsApiCall('ACM', 'describeCertificate', { CertificateArn: certificate.certificateArn })

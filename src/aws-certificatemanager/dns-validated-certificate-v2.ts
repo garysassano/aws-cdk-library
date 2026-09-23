@@ -1,11 +1,3 @@
-/**
- * Adapted for the Open Constructs Library from DNS Validated Certificate V2.
- * Copyright 2026 Gary Sassano
- *
- * This product includes software developed as part of the AWS Cloud Development Kit (AWS CDK).
- * AWS Cloud Development Kit (AWS CDK)
- * Copyright 2018-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- */
 import {
   TagManager,
   Duration,
@@ -224,7 +216,7 @@ export class DnsValidatedCertificateV2 extends Resource implements ICertificate 
         this.validateCrossPartitionReference(containingStack);
       }
 
-      const validationConfiguration = resolveValidationConfiguration(this.props, certificateDomainNames(this.props));
+      const validationConfiguration = resolveValidationConfiguration(this.props, domainNames);
       this.validationAuthorities = validationConfiguration.authorities;
       this.validateHostedZones(containingStack.account, usesSeparateStack);
       const authorityErrors = this.validateHostedZoneAuthority();
@@ -273,7 +265,9 @@ export class DnsValidatedCertificateV2 extends Resource implements ICertificate 
 
       this.node.addValidation({ validate: () => this.validateHostedZoneAuthority() });
     } catch (error) {
-      throw new Error(`${this.node.path}: ${error instanceof Error ? error.message : String(error)}`);
+      throw Object.assign(new Error(`${this.node.path}: ${error instanceof Error ? error.message : String(error)}`), {
+        cause: error,
+      });
     }
   }
 
@@ -334,10 +328,13 @@ export class DnsValidatedCertificateV2 extends Resource implements ICertificate 
       );
     }
     this.certificateResource.domainValidationOptions = Lazy.uncachedAny({
-      produce: context =>
-        names(context)
-          .filter(name => Token.isUnresolved(name) || !name.startsWith('*.') || !names(context).includes(name.slice(2)))
-          .map(domainName => ({ domainName, hostedZoneId: hostedZone.hostedZoneId.replace(/^\/hostedzone\//, '') })),
+      produce: context => {
+        const domainNames = names(context);
+        const nameSet = new Set(domainNames);
+        return domainNames
+          .filter(name => Token.isUnresolved(name) || !name.startsWith('*.') || !nameSet.has(name.slice(2)))
+          .map(domainName => ({ domainName, hostedZoneId: hostedZone.hostedZoneId.replace(/^\/hostedzone\//, '') }));
+      },
     });
   }
 
