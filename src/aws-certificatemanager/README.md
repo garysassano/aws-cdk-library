@@ -8,6 +8,19 @@ The `DnsValidatedCertificateV2` construct creates a public [DNS-validated ACM ce
 
 Setting `certificateRegion` creates the certificate in a generated owner stack in that region, re-imports the Route 53 zone into it, and hands the ARN back through a weak [`Fn::GetStackOutput`](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/intrinsic-function-reference-getstackoutput.html) reference. This covers CloudFront applications deployed outside `us-east-1` without certificate-provider Lambdas or custom resources.
 
+```mermaid
+flowchart LR
+  Zone["Public Route 53 zone"]
+  subgraph Owner["Generated certificate stack (us-east-1)"]
+    ACM["ACM certificate"] --> Output["Certificate ARN output"]
+  end
+  subgraph Application["Application stack (eu-central-1)"]
+    Reference["Fn::GetStackOutput"] --> Distribution["CloudFront distribution"]
+  end
+  Zone -->|"Validation CNAME"| ACM
+  Output -->|"Weak reference"| Reference
+```
+
 Core CDK can already share a `Certificate` from an explicit owner stack through weak references. This construct adds automatic regional placement and checks the primary name and SANs against the hosted zone. The `V2` name follows the deprecated core `DnsValidatedCertificate`; this library has no V1.
 
 ## Usage
@@ -111,7 +124,7 @@ new DnsValidatedCertificateV2(stack, 'MultiZoneCertificate', {
 });
 ```
 
-### Importing an existing certificate
+### Importing an Existing Certificate
 
 `fromCertificateAttributes()` imports an existing certificate ARN without creating any resources:
 
