@@ -293,7 +293,8 @@ export class DnsValidatedCertificateV2 extends Resource implements ICertificate 
     const certificate = new Certificate(scope, id, props);
     const resource = certificate.node.defaultChild;
     if (!CfnCertificate.isCfnCertificate(resource)) {
-      throw new Error(`${this.node.path}: expected an ACM certificate resource`);
+      // The constructor prefixes the construct path.
+      throw new Error('expected an ACM certificate resource');
     }
     return resource;
   }
@@ -370,7 +371,7 @@ export class DnsValidatedCertificateV2 extends Resource implements ICertificate 
       throw new Error('cross-stack certificates must be defined inside a CDK App or Stage');
     }
 
-    const stackId = `dns-validated-certificate-stack-${containingStack.node.addr}-${this.certificateRegion}`;
+    const stackId = generatedOwnerStackId(stage, containingStack, this.certificateRegion);
     const existing = stage.node.tryFindChild(stackId);
     if (existing !== undefined) {
       if (!Stack.isStack(existing)) {
@@ -379,6 +380,11 @@ export class DnsValidatedCertificateV2 extends Resource implements ICertificate 
       if (!(GENERATED_OWNER_SYMBOL in existing)) {
         throw new Error(
           `a stack named ${JSON.stringify(stackId)} already exists and is not a generated certificate owner; pass it as certificateStack`,
+        );
+      }
+      if ((existing as any)[GENERATED_OWNER_SYMBOL] !== containingStack) {
+        throw new Error(
+          `the generated certificate stack ${JSON.stringify(stackId)} belongs to another containing stack; pass an explicit certificateStack`,
         );
       }
       this.validateCertificateStack(existing, stackId);
@@ -392,7 +398,7 @@ export class DnsValidatedCertificateV2 extends Resource implements ICertificate 
       },
       tags: containingStack.tags.tagValues(),
     });
-    Object.defineProperty(owner, GENERATED_OWNER_SYMBOL, { value: true });
+    Object.defineProperty(owner, GENERATED_OWNER_SYMBOL, { value: containingStack });
     return owner;
   }
 
@@ -728,6 +734,17 @@ function resolvePlacement(
     throw new Error(`${path}: a separate certificateStack must have a concrete region`);
   }
   return { containingStack, region, separate };
+}
+
+/**
+ * Readable ID for a generated owner, e.g. `Application-certificates-us-east-1`.
+ *
+ * It becomes the deployed stack name, so changing it orphans deployed owners.
+ */
+function generatedOwnerStackId(stage: Stage, containingStack: Stack, region: string): string {
+  const relativePath = containingStack.node.path.slice(stage.node.path.length).replace(/^\//, '');
+  const base = relativePath.replace(/[^A-Za-z0-9-]+/g, '-');
+  return `${/^[A-Za-z]/.test(base) ? '' : 'Stack-'}${base}-certificates-${region}`;
 }
 
 /** Find the reference boundary shared by a top-level stack and its nested descendants. */

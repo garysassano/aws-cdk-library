@@ -79,7 +79,7 @@ describe('certificate placement and references', () => {
 
     Template.fromStack(stack).resourceCountIs('AWS::CertificateManager::Certificate', 1);
     expect(certificate.certificateStack).toBe(stack);
-    expect(app.node.tryFindChild(`dns-validated-certificate-stack-${stack.node.addr}-us-east-1`)).toBeUndefined();
+    expect(app.node.tryFindChild(generatedOwnerId(stack))).toBeUndefined();
   });
 
   test('creates a certificate in an explicit non-default region', () => {
@@ -870,7 +870,7 @@ describe('invalid stack topology', () => {
     const app = createApp();
     const stack = createStack(app, 'Stack', 'eu-west-1');
     const hostedZone = HostedZone.fromHostedZoneId(stack, 'HostedZone', 'Z123456');
-    new Construct(app, `dns-validated-certificate-stack-${stack.node.addr}-us-east-1`);
+    new Construct(app, generatedOwnerId(stack));
 
     expect(
       () =>
@@ -1256,7 +1256,7 @@ describe('OCF contract regressions', () => {
 
   test('rejects an unmanaged stack collision instead of adopting it', () => {
     const { app, stack, hostedZone } = crossRegionFixture();
-    createStack(app, `dns-validated-certificate-stack-${stack.node.addr}-us-east-1`, 'us-east-1');
+    createStack(app, generatedOwnerId(stack), 'us-east-1');
     expect(
       () =>
         new DnsValidatedCertificateV2(stack, 'Certificate', {
@@ -1265,6 +1265,47 @@ describe('OCF contract regressions', () => {
           hostedZone,
         }),
     ).toThrow(/not a generated certificate owner; pass it as certificateStack/);
+  });
+
+  test('names generated owners after the containing stack', () => {
+    const app = createApp();
+    const stage = new Stage(app, 'Prod');
+    const cases: Array<[Stack, string]> = [
+      [createStack(app, 'Application', 'eu-central-1'), 'Application-certificates-us-east-1'],
+      [createStack(stage, 'Application', 'eu-central-1'), 'Prod-Application-certificates-us-east-1'],
+      [new NestedStack(createStack(app, 'Parent', 'eu-central-1'), 'Nested'), 'Parent-Nested-certificates-us-east-1'],
+      [
+        new Stack(app, '1my_app', { stackName: 'MyApp', env: { account: ACCOUNT, region: 'eu-central-1' } }),
+        'Stack-1my-app-certificates-us-east-1',
+      ],
+    ];
+    for (const [containingStack, expectedName] of cases) {
+      const certificate = new DnsValidatedCertificateV2(containingStack, 'Certificate', {
+        certificateRegion: 'us-east-1',
+        domainName: 'www.example.com',
+        hostedZone: HostedZone.fromHostedZoneId(containingStack, 'Zone', 'Z123456'),
+      });
+      expect(certificate.certificateStack.stackName).toBe(expectedName);
+    }
+  });
+
+  test('rejects a generated owner name shared by different containing stacks', () => {
+    const app = createApp();
+    const topLevel = createStack(app, 'Parent-Nested', 'eu-central-1');
+    const nested = new NestedStack(createStack(app, 'Parent', 'eu-central-1'), 'Nested');
+    const props = { certificateRegion: 'us-east-1', domainName: 'www.example.com' };
+    new DnsValidatedCertificateV2(topLevel, 'Certificate', {
+      ...props,
+      hostedZone: HostedZone.fromHostedZoneId(topLevel, 'Zone', 'Z123456'),
+    });
+
+    expect(
+      () =>
+        new DnsValidatedCertificateV2(nested, 'Certificate', {
+          ...props,
+          hostedZone: HostedZone.fromHostedZoneId(nested, 'Zone', 'Z123456'),
+        }),
+    ).toThrow(/belongs to another containing stack; pass an explicit certificateStack/);
   });
 
   test('a nested consumer depends on a top-level regional owner through its parent', () => {
@@ -1398,13 +1439,17 @@ function crossRegionFixture(): {
   return { app, stack, hostedZone };
 }
 
+function generatedOwnerId(containingStack: Stack, region = 'us-east-1'): string {
+  return `${containingStack.node.path.replace(/\//g, '-')}-certificates-${region}`;
+}
+
 function generatedCertificateStack(app: App, containingStack: Stack, region = 'us-east-1'): Stack {
-  return app.node.findChild(`dns-validated-certificate-stack-${containingStack.node.addr}-${region}`) as Stack;
+  return app.node.findChild(generatedOwnerId(containingStack, region)) as Stack;
 }
 
 function weakCertificateArnReference(
   containingStack: Stack,
-  stackNamePattern = `dns-validated-certificate-stack-${containingStack.node.addr}-us-east-1`,
+  stackNamePattern = generatedOwnerId(containingStack),
   region = 'us-east-1',
 ): unknown {
   return {

@@ -70,7 +70,7 @@ new Distribution(application, 'Distribution', {
 });
 ```
 
-The generated owner stack uses the app's default synthesizer, so the target region must be bootstrapped with the app's qualifier.
+The generated owner stack is named after the containing stack and region, here `Application-certificates-us-east-1`. It uses the app's default synthesizer, so the target region must be bootstrapped with the app's qualifier.
 
 ### Explicit Certificate Stack
 
