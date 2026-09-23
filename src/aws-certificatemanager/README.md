@@ -49,6 +49,7 @@ CloudFront requires its viewer certificate in [`us-east-1`](https://docs.aws.ama
 import { Distribution } from 'aws-cdk-lib/aws-cloudfront';
 import { HttpOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 
+const app = new App();
 const application = new Stack(app, 'Application', {
   env: { account: '123456789012', region: 'eu-central-1' },
 });
@@ -74,7 +75,7 @@ The generated owner stack is named after the containing stack and region, here `
 
 ### Explicit Certificate Stack
 
-Pass `certificateStack` when the owner needs its own name, synthesizer, tags, termination protection, or lifecycle. Its region determines the certificate region, and it must be in the same app or stage, account, and partition as the containing stack. `certificateStack` and `certificateRegion` cannot be combined.
+Continuing the CloudFront example, pass `certificateStack` when the owner needs its own name, synthesizer, tags, termination protection, or lifecycle. Its region determines the certificate region, and it must be in the same app or stage, account, and partition as the containing stack. `certificateStack` and `certificateRegion` cannot be combined.
 
 ```ts
 const certificates = new Stack(app, 'Certificates', {
@@ -92,7 +93,7 @@ A separate owner needs a concrete hosted zone ID, or a public hosted zone create
 
 ### Multiple Hosted Zones
 
-Use `hostedZonesByDomain` instead of `hostedZone` when names belong to different zones. Every primary and SAN name needs an exact entry, including separate apex and wildcard keys. Names are matched case-insensitively without a trailing dot.
+Continuing the basic example, use `hostedZonesByDomain` instead of `hostedZone` when names belong to different zones. Every primary and SAN name needs an exact entry, including separate apex and wildcard keys. Names are matched case-insensitively without a trailing dot.
 
 ```ts
 const netZone = HostedZone.fromHostedZoneAttributes(stack, 'NetZone', {
