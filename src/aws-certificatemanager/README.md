@@ -1,28 +1,62 @@
-# ACM certificates
+Constructs for the AWS Certificate Manager service
 
-`DnsValidatedCertificateV2` creates a public DNS-validated ACM certificate with native CloudFormation resources. Set `certificateRegion` to create the certificate in another region without defining an owner stack. The construct re-imports the Route 53 zone into that owner and checks certificate names against zone authority.
+# DnsValidatedCertificateV2 CDK Construct
 
-Core CDK can already share a `Certificate` from an explicit owner stack through weak cross-stack references. This construct adds automatic regional placement and DNS checks. Its `V2` name follows CDK's earlier `DnsValidatedCertificate`; this library has no V1.
+## Overview
 
-## CloudFront certificate in `us-east-1`
+The `DnsValidatedCertificateV2` construct creates a public [DNS-validated ACM certificate](https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html) with native CloudFormation resources, either in the containing stack or in another region.
 
-CloudFront requires a viewer certificate in [`us-east-1`](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cnames-and-https-requirements.html). This example puts the application in `eu-central-1` and lets the construct create a certificate owner in `us-east-1`.
+Setting `certificateRegion` creates the certificate in a generated owner stack in that region, re-imports the Route 53 zone into it, and hands the ARN back through a weak [`Fn::GetStackOutput`](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/intrinsic-function-reference-getstackoutput.html) reference. This covers CloudFront applications deployed outside `us-east-1` without certificate-provider Lambdas or custom resources.
 
-```typescript
+Core CDK can already share a `Certificate` from an explicit owner stack through weak references. This construct adds automatic regional placement and checks the primary name and SANs against the hosted zone. The `V2` name follows the deprecated core `DnsValidatedCertificate`; this library has no V1.
+
+## Usage
+
+Import the necessary classes from AWS CDK and this construct:
+
+```ts
 import { App, Stack } from 'aws-cdk-lib';
-import { Distribution } from 'aws-cdk-lib/aws-cloudfront';
-import { HttpOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { HostedZone } from 'aws-cdk-lib/aws-route53';
 import { DnsValidatedCertificateV2 } from '@open-constructs/aws-cdk/aws-certificatemanager';
+```
 
+### Basic Example
+
+Without placement properties, the certificate is created in the containing stack:
+
+```ts
 const app = new App();
-const application = new Stack(app, 'Application', {
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: 'eu-central-1' },
+const stack = new Stack(app, 'ApiStack', {
+  env: { account: '123456789012', region: 'eu-central-1' },
 });
-const zone = HostedZone.fromHostedZoneAttributes(application, 'Zone', {
-  hostedZoneId: 'Z1234567890',
+const zone = HostedZone.fromHostedZoneAttributes(stack, 'Zone', {
+  hostedZoneId: 'Z23ABC4XYZL05B',
   zoneName: 'example.com',
 });
+
+new DnsValidatedCertificateV2(stack, 'Certificate', {
+  domainName: 'api.example.com',
+  subjectAlternativeNames: ['*.api.example.com'],
+  hostedZone: zone,
+});
+```
+
+### CloudFront Example
+
+CloudFront requires its viewer certificate in [`us-east-1`](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cnames-and-https-requirements.html). Set `certificateRegion` to create the certificate there from an application stack in another region:
+
+```ts
+import { Distribution } from 'aws-cdk-lib/aws-cloudfront';
+import { HttpOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
+
+const application = new Stack(app, 'Application', {
+  env: { account: '123456789012', region: 'eu-central-1' },
+});
+const zone = HostedZone.fromHostedZoneAttributes(application, 'Zone', {
+  hostedZoneId: 'Z23ABC4XYZL05B',
+  zoneName: 'example.com',
+});
+
 const certificate = new DnsValidatedCertificateV2(application, 'ViewerCertificate', {
   domainName: 'www.example.com',
   hostedZone: zone,
@@ -36,22 +70,60 @@ new Distribution(application, 'Distribution', {
 });
 ```
 
-Replace the example zone ID, domain, and origin. The zone must be public, delegated, and in the certificate account. Importing it does not verify live DNS or ownership.
+The generated owner stack uses the app's default synthesizer, so the target region must be bootstrapped with the app's qualifier.
 
-## Placement and DNS
+### Explicit Certificate Stack
 
-Omit both placement properties to keep the certificate in the containing stack, including an environment-agnostic stack. Set `certificateRegion` for an automatic owner in another concrete region. Use `certificateStack` for an explicit owner with its own name, synthesizer, tags, or lifecycle; that stack's region determines the certificate region. The two properties cannot be combined. A separate owner must be in the same app or stage, account, and partition.
+Pass `certificateStack` when the owner needs its own name, synthesizer, tags, termination protection, or lifecycle. Its region determines the certificate region, and it must be in the same app or stage, account, and partition as the containing stack. `certificateStack` and `certificateRegion` cannot be combined.
 
-Supply exactly one of `hostedZone` and `hostedZonesByDomain`. The first validates the primary name and every SAN in one zone. The second requires an exact zone entry for each primary and SAN name, including distinct apex and wildcard keys. Names are matched case-insensitively without a trailing dot; duplicate and out-of-zone names are rejected. An imported zone's public status and real account ownership remain caller preconditions.
+```ts
+const certificates = new Stack(app, 'Certificates', {
+  env: { account: '123456789012', region: 'us-east-1' },
+});
 
-Single-zone validation accepts fixed-length SAN arrays whose values resolve during synthesis. A list whose length is unknown until deployment cannot provide ACM's per-name validation options. Multi-zone validation requires concrete names.
+new DnsValidatedCertificateV2(application, 'OwnedCertificate', {
+  domainName: 'www.example.com',
+  hostedZone: zone,
+  certificateStack: certificates,
+});
+```
 
-## References and lifecycle
+A separate owner needs a concrete hosted zone ID, or a public hosted zone created in that owner. A certificate owned by a nested stack can only be consumed within its top-level stack tree; use a top-level `certificateStack` for wider sharing.
 
-The construct sets weak cross-stack reference strength on its native certificate resource, even when the certificate stays in the containing stack. This overrides the app's `@aws-cdk/core:defaultCrossStackReferences` policy for other stacks that reference this certificate, including stacks in the same region. Remote consumers use `Fn::GetStackOutput`; owner-local consumers use a native reference. A nested owner serves only consumers in its own top-level stack tree; use a top-level `certificateStack` for external sharing.
+### Multiple Hosted Zones
 
-Weak references allow the owner to change independently, so update consumers before deleting or replacing an in-use certificate. Changing the owner alone does not refresh a deployed consumer. ACM validation CNAMEs can be shared and are not removed by this construct. See [weak reference semantics](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/intrinsic-function-reference-getstackoutput.html) and [ACM DNS validation](https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html).
+Use `hostedZonesByDomain` instead of `hostedZone` when names belong to different zones. Every primary and SAN name needs an exact entry, including separate apex and wildcard keys. Names are matched case-insensitively without a trailing dot.
 
-The construct implements `ICertificate`, supports `Tags.of(certificate)`, `removalPolicy`, and `metricDaysToExpiry()`, and exposes `certificateResource` for native overrides. `fromCertificateAttributes()` imports an existing ARN without creating resources. The library requires Node.js 22+, `aws-cdk-lib` 2.268.0+, and `constructs` 10.8.1+.
+```ts
+const netZone = HostedZone.fromHostedZoneAttributes(stack, 'NetZone', {
+  hostedZoneId: 'Z0987654321ABC',
+  zoneName: 'example.net',
+});
 
-For contributor validation, see the [integration fixture](../../test/aws-certificatemanager/README.md).
+new DnsValidatedCertificateV2(stack, 'MultiZoneCertificate', {
+  domainName: 'www.example.com',
+  subjectAlternativeNames: ['api.example.net'],
+  hostedZonesByDomain: {
+    'www.example.com': zone,
+    'api.example.net': netZone,
+  },
+});
+```
+
+### Importing an existing certificate
+
+`fromCertificateAttributes()` imports an existing certificate ARN without creating any resources:
+
+```ts
+const imported = DnsValidatedCertificateV2.fromCertificateAttributes(stack, 'Imported', {
+  certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/11111111-2222-3333-4444-555555555555',
+});
+```
+
+### Additional Notes
+
+- The construct sets weak cross-stack reference strength on its certificate, even when it stays in the containing stack. This overrides the app's `@aws-cdk/core:defaultCrossStackReferences` policy for stacks that reference this certificate.
+- Weak references do not stop an in-use certificate from being replaced or deleted. Update consumers first; changing the owner alone does not refresh a deployed consumer.
+- Removing the last certificate from a generated owner removes that stack from the cloud assembly but does not delete the deployed stack. Delete it separately.
+- The hosted zone must be public, delegated, and in the certificate account. Imported zones cannot prove this at synthesis.
+- ACM validation CNAMEs can be shared between certificates and are not removed by this construct.

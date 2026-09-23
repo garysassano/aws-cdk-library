@@ -5,6 +5,26 @@ import { HttpOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { HostedZone } from 'aws-cdk-lib/aws-route53';
 import { aws_certificatemanager } from '../../src';
 
+/**
+ * Requests a public certificate in us-east-1 and attaches it to a CloudFront
+ * distribution deployed from eu-central-1.
+ *
+ * Deploying needs a publicly delegated Route 53 zone in the deployment account,
+ * and both regions must be bootstrapped. The alias ocf-certificate-integ.<zone name>
+ * must not be used by another distribution. Deploy with the real zone:
+ *
+ *   OCF_CERTIFICATE_INTEG_ZONE_ID=<id> OCF_CERTIFICATE_INTEG_ZONE_NAME=<name> \
+ *     npx projen integ:update test/aws-certificatemanager/integ.dns-validated-certificate-v2.ts
+ *
+ * The committed snapshot uses the placeholder zone that aws-cdk uses. After a
+ * successful deployment, regenerate it without deploying:
+ *
+ *   OCF_CERTIFICATE_INTEG_ZONE_ID=Z23ABC4XYZL05B OCF_CERTIFICATE_INTEG_ZONE_NAME=example.com \
+ *     npx projen integ:update --dry-run test/aws-certificatemanager/integ.dns-validated-certificate-v2.ts
+ *
+ * ACM validation CNAMEs are not removed with the certificate; delete the test
+ * record from the zone afterwards if no other certificate shares it.
+ */
 const app = new App({ context: { '@aws-cdk/core:defaultCrossStackReferences': 'strong' } });
 const zoneId = process.env.OCF_CERTIFICATE_INTEG_ZONE_ID;
 const zoneName = process.env.OCF_CERTIFICATE_INTEG_ZONE_NAME;

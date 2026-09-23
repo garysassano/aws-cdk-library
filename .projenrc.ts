@@ -120,6 +120,5 @@ project.addDevDeps(
   '@typescript-eslint/parser@^8.69.0',
   '@typescript-eslint/eslint-plugin@^8.69.0',
 );
-project.npmignore?.addPatterns('/cdk.context.json', '/cdk.out*/', '/.env*');
 
 project.synth();
